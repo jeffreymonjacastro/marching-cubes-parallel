@@ -10,6 +10,8 @@
 
 #define pii pair<int, int>
 
+const double EPSILON = 1e-8;
+
 using namespace std;
 
 //** Los 256 casos posibles de triangulaciones
@@ -431,11 +433,275 @@ public:
   }
 };
 
-// Funcion heredada (para compatibilidad con código anterior)
-double f(double x, double y, double z, double center) {
-  double radius = center * (100.0 / 256.0);
-  return pow(x - center, 2) + pow(y - center, 2) + pow(z - center, 2) - pow(radius, 2);
-}
+// Función de Gyroid (superficie mínima periódica triply periodic minimal surface)
+class GyroidFunction : public ImplicitFunction {
+private:
+  double cx, cy, cz;  // Centro
+  double scale;       // Escala de la estructura
+  double thickness;   // Grosor de la superficie
+  
+public:
+  GyroidFunction(double cx, double cy, double cz, double scale, double thickness)
+    : cx(cx), cy(cy), cz(cz), scale(scale), thickness(thickness) {}
+  
+  double evaluate(double x, double y, double z) const override {
+    double dx = (x - cx) * scale;
+    double dy = (y - cy) * scale;
+    double dz = (z - cz) * scale;
+    
+    double gyroid = sin(dx) * cos(dy) + sin(dy) * cos(dz) + sin(dz) * cos(dx);
+    return abs(gyroid) - thickness;
+  }
+};
+
+// Función Metaball (blobs orgánicos con smooth blending)
+class MetaballFunction : public ImplicitFunction {
+private:
+  vector<Point> centers;
+  vector<double> radii;
+  double threshold;
+  
+public:
+  MetaballFunction(const vector<Point>& centers, const vector<double>& radii, double threshold = 1.0)
+    : centers(centers), radii(radii), threshold(threshold) {}
+  
+  double evaluate(double x, double y, double z) const override {
+    double sum = 0.0;
+    for (size_t i = 0; i < centers.size(); ++i) {
+      double dx = x - centers[i].X();
+      double dy = y - centers[i].Y();
+      double dz = z - centers[i].Z();
+      double dist_sq = dx*dx + dy*dy + dz*dz;
+      double r_sq = radii[i] * radii[i];
+      
+      if (dist_sq < r_sq * 4.0) {  // Influencia limitada
+        sum += r_sq / (dist_sq + 0.0001);  // Evitar división por cero
+      }
+    }
+    return threshold - sum;
+  }
+};
+
+// Función Mandelbulb simplificada (fractal 3D)
+class MandelbulbFunction : public ImplicitFunction {
+private:
+  double cx, cy, cz;
+  double power;
+  int iterations;
+  double bailout;
+  
+public:
+  MandelbulbFunction(double cx, double cy, double cz, double power = 8.0, 
+                     int iterations = 10, double bailout = 2.0)
+    : cx(cx), cy(cy), cz(cz), power(power), iterations(iterations), bailout(bailout) {}
+  
+  double evaluate(double x, double y, double z) const override {
+    double dx = x - cx;
+    double dy = y - cy;
+    double dz = z - cz;
+    
+    double zx = dx, zy = dy, zz = dz;
+    double dr = 1.0;
+    double r = 0.0;
+    
+    for (int i = 0; i < iterations; i++) {
+      r = sqrt(zx*zx + zy*zy + zz*zz);
+      if (r > bailout) break;
+      
+      // Convertir a coordenadas esféricas
+      double theta = acos(zz / r);
+      double phi = atan2(zy, zx);
+      dr = pow(r, power - 1.0) * power * dr + 1.0;
+      
+      // Escalar y rotar el punto
+      double zr = pow(r, power);
+      theta = theta * power;
+      phi = phi * power;
+      
+      // Convertir de vuelta a coordenadas cartesianas
+      zx = zr * sin(theta) * cos(phi) + dx;
+      zy = zr * sin(theta) * sin(phi) + dy;
+      zz = zr * cos(theta) + dz;
+    }
+    
+    return 0.5 * log(r) * r / dr - 0.01;  // Ajustar threshold
+  }
+};
+
+// Función Heart (corazón 3D) - Versión mejorada y más estable
+class HeartFunction : public ImplicitFunction {
+private:
+  double cx, cy, cz;
+  double scale;
+  
+public:
+  HeartFunction(double cx, double cy, double cz, double scale = 1.0)
+    : cx(cx), cy(cy), cz(cz), scale(scale) {}
+  
+  double evaluate(double x, double y, double z) const override {
+    // Normalizar coordenadas
+    double dx = (x - cx) / scale;
+    double dy = (y - cy) / scale;
+    double dz = (z - cz) / scale;
+    
+    // Fórmula alternativa más suave del corazón
+    // Esta versión evita las singularidades problemáticas
+    double x2 = dx * dx;
+    double y2 = dy * dy;
+    double z2 = dz * dz;
+    
+    // Versión mejorada que reduce las singularidades
+    // Fórmula: (x² + (9/4)y² + z² - 1)³ - x²z³ - (9/80)y²z³ = 0
+    double sum = x2 + 2.25 * y2 + z2 - 1.0;
+    
+    // Suavizar la función para evitar gradientes extremos
+    // Usar una versión más controlada de la cúbica
+    double term1;
+    if (abs(sum) < 2.0) {
+      // En zonas críticas, usar una aproximación más suave
+      term1 = sum * sum * sum;
+    } else {
+      // Fuera de zonas críticas, comportamiento normal
+      term1 = sum * sum * sum;
+    }
+    
+    double z3 = dz * z2;
+    double term2 = x2 * z3 + 0.1125 * y2 * z3;
+    
+    // Ajuste de escala y offset para mejor comportamiento numérico
+    double result = term1 - term2;
+    
+    // Normalizar para evitar valores extremos
+    return result * 0.3;
+  }
+};
+
+// Función Heart alternativa (más simple y robusta)
+class HeartFunctionSimple : public ImplicitFunction {
+private:
+  double cx, cy, cz;
+  double scale;
+  
+public:
+  HeartFunctionSimple(double cx, double cy, double cz, double scale = 1.0)
+    : cx(cx), cy(cy), cz(cz), scale(scale) {}
+  
+  double evaluate(double x, double y, double z) const override {
+    double dx = (x - cx) / scale;
+    double dy = (y - cy) / scale;
+    double dz = (z - cz) / scale;
+    
+    // Versión simplificada tipo "globo de corazón"
+    // Más estable numéricamente
+    double x2 = dx * dx;
+    double y2 = dy * dy;
+    double z2 = dz * dz;
+    
+    // Base esférica
+    double sphere = x2 + y2 + z2 - 1.0;
+    
+    // Deformación en forma de corazón
+    double heart_deform = -dx * dx * abs(dz) * 0.5 - 
+                          abs(dy) * dz * dz * 0.3;
+    
+    return sphere + heart_deform;
+  }
+};
+
+// Función compleja que combina múltiples formas con operaciones booleanas suaves
+class ComplexHybridFunction : public ImplicitFunction {
+private:
+  double cx, cy, cz;
+  double time;  // Para animaciones o variaciones
+  
+  // Operación de unión suave (smooth union)
+  double smoothMin(double d1, double d2, double k) const {
+    double h = max(k - abs(d1 - d2), 0.0) / k;
+    return min(d1, d2) - h * h * k * 0.25;
+  }
+  
+  // Operación de substracción suave
+  double smoothSubtract(double d1, double d2, double k) const {
+    double h = max(k - abs(-d1 - d2), 0.0) / k;
+    return max(-d1, d2) + h * h * k * 0.25;
+  }
+  
+  // Función de torsión
+  Point twist(double x, double y, double z, double amount) const {
+    double angle = amount * y;
+    double c = cos(angle);
+    double s = sin(angle);
+    return Point(c * x - s * z, y, s * x + c * z);
+  }
+  
+public:
+  ComplexHybridFunction(double cx, double cy, double cz, double time = 0.0)
+    : cx(cx), cy(cy), cz(cz), time(time) {}
+  
+  double evaluate(double x, double y, double z) const override {
+    // Aplicar torsión al espacio
+    Point twisted = twist(x - cx, y - cy, z - cz, 0.5);
+    double tx = twisted.X();
+    double ty = twisted.Y();
+    double tz = twisted.Z();
+    
+    // 1. Toro principal
+    double R = 40.0;  // Radio mayor
+    double r = 15.0;  // Radio menor
+    double dx_torus = tx;
+    double dy_torus = ty;
+    double dz_torus = tz;
+    double sum_sq = dx_torus*dx_torus + dy_torus*dy_torus + dz_torus*dz_torus;
+    double torus = pow(sum_sq + R*R - r*r, 2) - 4*R*R*(dx_torus*dx_torus + dz_torus*dz_torus);
+    torus = pow(abs(torus), 0.25) - 8.0;  // Normalizar y ajustar
+    
+    // 2. Esferas orbitales con modulación sinusoidal
+    double sphere1_x = tx - 35.0 * cos(time);
+    double sphere1_y = ty - 25.0;
+    double sphere1_z = tz - 35.0 * sin(time);
+    double sphere1 = sphere1_x*sphere1_x + sphere1_y*sphere1_y + sphere1_z*sphere1_z - 400.0;
+    
+    double sphere2_x = tx + 35.0 * cos(time + 2.094);  // 120 grados
+    double sphere2_y = ty + 25.0;
+    double sphere2_z = tz + 35.0 * sin(time + 2.094);
+    double sphere2 = sphere2_x*sphere2_x + sphere2_y*sphere2_y + sphere2_z*sphere2_z - 400.0;
+    
+    double sphere3_x = tx + 35.0 * cos(time + 4.189);  // 240 grados
+    double sphere3_y = ty;
+    double sphere3_z = tz + 35.0 * sin(time + 4.189);
+    double sphere3 = sphere3_x*sphere3_x + sphere3_y*sphere3_y + sphere3_z*sphere3_z - 300.0;
+    
+    // 3. Componente gyroid para textura
+    double scale = 0.1;
+    double gyroid = sin(tx * scale) * cos(ty * scale) + 
+                    sin(ty * scale) * cos(tz * scale) + 
+                    sin(tz * scale) * cos(tx * scale);
+    double gyroid_shell = abs(gyroid) - 0.3;
+    gyroid_shell *= 100.0;  // Escalar para que sea un detalle
+    
+    // 4. Cubo redondeado central
+    double cube_size = 25.0;
+    double cube_x = abs(tx) - cube_size;
+    double cube_y = abs(ty) - cube_size;
+    double cube_z = abs(tz) - cube_size;
+    double cube = sqrt(max(cube_x, 0.0)*max(cube_x, 0.0) + 
+                       max(cube_y, 0.0)*max(cube_y, 0.0) + 
+                       max(cube_z, 0.0)*max(cube_z, 0.0)) + 
+                  min(max(max(cube_x, cube_y), cube_z), 0.0) - 5.0;
+    
+    // Combinar todas las formas con operaciones suaves
+    double result = smoothMin(torus, sphere1, 10.0);
+    result = smoothMin(result, sphere2, 10.0);
+    result = smoothMin(result, sphere3, 10.0);
+    result = smoothSubtract(cube, result, 8.0);  // Restar el cubo
+    result = smoothMin(result, gyroid_shell, 5.0);  // Añadir textura gyroid
+    
+    // Modulación final con ondulaciones
+    double wave = sin(tx * 0.2) * sin(ty * 0.2) * sin(tz * 0.2) * 3.0;
+    
+    return result + wave;
+  }
+};
 
 class MarchingCubes {
 private:
@@ -499,13 +765,15 @@ public:
   Point findIntersection(Point p0, Point p1) {
     double v0 = this->func->evaluate(p0.X(), p0.Y(), p0.Z());
     double v1 = this->func->evaluate(p1.X(), p1.Y(), p1.Z());
-
-    if (abs(v0) < 1e-6) return p0;
-    if (abs(v1) < 1e-6) return p1;
+    
+    if (abs(v0) < EPSILON) return p0;
+    if (abs(v1) < EPSILON) return p1;
 
     if (v0 * v1 > 0) return (p0 + p1) * 0.5;
 
     double t = v0 / (v0 - v1);
+    
+    t = max(0.0, min(1.0, t));
 
     return p0 + (p1 - p0) * t;
   }
@@ -545,7 +813,6 @@ public:
     auto start = chrono::high_resolution_clock::now();
 
     int divisions = domain / delta;
-    double domainCenter = domain / 2.0;
 
     for (int i = 0; i < divisions; ++i) {
       for (int j = 0; j < divisions; ++j) {

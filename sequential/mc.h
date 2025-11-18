@@ -320,14 +320,25 @@ public:
   double Z() const { return z; }
 
   Point operator+(const Point &p) {
-  return Point(this->x + p.x, this->y + p.y, this->z + p.z);
+    return Point(this->x + p.x, this->y + p.y, this->z + p.z);
+  }
+
+  Point operator-(const Point &p) {
+    return Point(this->x - p.x, this->y - p.y, this->z - p.z);
+  }
+
+  Point operator*(double scalar) {
+    return Point(this->x * scalar, this->y * scalar, this->z * scalar);
+  }
+
+  Point operator/(double scalar) {
+    return Point(this->x / scalar, this->y / scalar, this->z / scalar);
   }
 
   friend ostream &operator<<(ostream &plyfile, const Point &p) {
     plyfile << p.x << " " << p.y << " " << p.z;
     return plyfile;
-}
-    
+  }
 };
 
 class Triangle {
@@ -363,7 +374,6 @@ private:
   double radius;     
 public:
   Sphere() {}
-  
   Sphere(double cx, double cy, double cz, double r) : center(cx, cy, cz), radius(r) {}
   
   double evaluate(double x, double y, double z) const override {
@@ -427,17 +437,21 @@ double f(double x, double y, double z, double center) {
   return pow(x - center, 2) + pow(y - center, 2) + pow(z - center, 2) - pow(radius, 2);
 }
 
-
 class MarchingCubes {
 private:
   vector<Triangle> triangles;
+  int domain;
   int delta;
+  string filename;
+  ImplicitFunction* func;
 
 public:
   MarchingCubes() {}
+  MarchingCubes(int domain, int delta, const string &filename, ImplicitFunction* func)
+      : domain(domain), delta(delta), filename(filename), func(func) {}
 
-  void exportPly(string filename) {
-    fstream plyfile(filename, ios::out);
+  void exportPly() {
+    fstream plyfile(this->filename, ios::out);
     plyfile << "ply\n";
     plyfile << "format ascii 1.0\n";
     plyfile << "element vertex " << this->triangles.size() * 3 << "\n";
@@ -459,7 +473,7 @@ public:
     plyfile.close();
   }
 
-  int generateCase(double x, double y, double z, double delta, const ImplicitFunction* func) {
+  int generateCase(double x, double y, double z, double delta) {
     int whichCase = 0;
 
     double vertices[8][3] = {
@@ -474,11 +488,80 @@ public:
     };
 
     for (int i = 0; i < 8; ++i) {
-      if (func->evaluate(vertices[i][0], vertices[i][1], vertices[i][2]) > 0) {
+      if (this->func->evaluate(vertices[i][0], vertices[i][1], vertices[i][2]) > 0) {
         whichCase |= (1 << i);
       }
     }
 
     return whichCase;
   }
+
+  Point findIntersection(Point p0, Point p1) {
+    double v0 = this->func->evaluate(p0.X(), p0.Y(), p0.Z());
+    double v1 = this->func->evaluate(p1.X(), p1.Y(), p1.Z());
+
+    if (abs(v0) < 1e-6) return p0;
+    if (abs(v1) < 1e-6) return p1;
+
+    if (v0 * v1 > 0) return (p0 + p1) * 0.5;
+
+    double t = v0 / (v0 - v1);
+
+    return p0 + (p1 - p0) * t;
+  }
+
+  void generatePoints(double x, double y, double z, double delta) {
+    int whichCase = generateCase(x, y, z, delta);
+    if (whichCase == 0 || whichCase == 255) return;
+
+    Point cubeVertices[8] = {
+      Point(x, y, z),
+      Point(x + delta, y, z),
+      Point(x + delta, y + delta, z),
+      Point(x, y + delta, z),
+      Point(x, y, z + delta),
+      Point(x + delta, y, z + delta),
+      Point(x + delta, y + delta, z + delta),
+      Point(x, y + delta, z + delta)
+    };
+
+    Point edgeIntersections[12];
+    for (int i = 0; i < 12; ++i) {
+      int v0 = edge_vertice_mapper[i].first;
+      int v1 = edge_vertice_mapper[i].second;
+      edgeIntersections[i] = findIntersection(cubeVertices[v0], cubeVertices[v1]);
+    }
+
+    for (int i = 0; triTable[whichCase][i] != -1; i += 3) {
+      Point p1 = edgeIntersections[triTable[whichCase][i]];
+      Point p2 = edgeIntersections[triTable[whichCase][i + 1]];
+      Point p3 = edgeIntersections[triTable[whichCase][i + 2]];
+      triangles.emplace_back(p1, p2, p3);
+    }
+  }
+
+  void generateMesh() {
+
+    auto start = chrono::high_resolution_clock::now();
+
+    int divisions = domain / delta;
+    double domainCenter = domain / 2.0;
+
+    for (int i = 0; i < divisions; ++i) {
+      for (int j = 0; j < divisions; ++j) {
+        for (int k = 0; k < divisions; ++k) {
+          double x = i * delta;
+          double y = j * delta;
+          double z = k * delta;
+          generatePoints(x, y, z, delta);
+        }
+      }
+    }
+
+    auto end = chrono::high_resolution_clock::now();
+    chrono::duration<double> elapsed = end - start;
+
+    cout << "Mesh generated with " << triangles.size() << " triangles in " << elapsed.count() << " seconds.\n";
+  }
 };
+

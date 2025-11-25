@@ -8,6 +8,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <mpi.h>
 
 #define pii pair<int, int>
 
@@ -311,11 +312,9 @@ vector<pii> edge_vertice_mapper{
     {2, 6},
     {3, 7}};
 
-class Point {
-private:
+struct Point {
   double x, y, z;
 
-public:
   Point() : x(0), y(0), z(0) {}
   Point(double x, double y, double z) : x(x), y(y), z(z) {}
 
@@ -345,11 +344,9 @@ public:
   }
 };
 
-class Triangle {
-private:
+struct Triangle {
   Point p1, p2, p3;
 
-public:
   Triangle() {}
   Triangle(Point p1, Point p2, Point p3) : p1(p1), p2(p2), p3(p3) {}
 
@@ -392,7 +389,6 @@ public:
   double evaluate(double x, double y, double z) const override {
     return pow(x - center.X(), 2) + pow(y - center.Y(), 2) + pow(z - center.Z(), 2) - pow(radius, 2);
   }
-
 };
 
 // Funcion de un toro: ((x-cx)^2 + (y-cy)^2 + (z-cz)^2 + R^2 - r^2)^2 - 4*R^2*((x-cx)^2 + (z-cz)^2) = 0
@@ -488,11 +484,6 @@ public:
     double potentialSum = 0.0;
 
     for (const auto &sphere : spheres) {
-      // Accedemos a los datos de la esfera.
-      // Nota: Como 'center' y 'radius' son privados en tu clase Sphere,
-      // necesitarás agregar getters a Sphere o hacer esta clase 'friend'.
-      // Aquí asumo que agregaste: double getRadius() y Point getCenter().
-
       double r = sphere.getRadius();
       Point c = sphere.getCenter();
 
@@ -502,23 +493,11 @@ public:
 
       double distSq = dx * dx + dy * dy + dz * dz;
 
-      // Evitar división por cero si el punto evaluado es exactamente el centro
       if (distSq < 1e-6)
         distSq = 1e-6;
 
-      // Fórmula de Metaballs: (Radio^2 / Distancia^2)
       potentialSum += (r * r) / distSq;
     }
-
-    // Tu sistema de Marching Cubes espera:
-    // < 0 : Adentro
-    // > 0 : Afuera
-    // = 0 : Superficie
-
-    // Si la suma de potenciales es alta (ej. 5.0), estamos muy adentro.
-    // 1.0 - 5.0 = -4.0 (Correcto, negativo es adentro)
-    // Si la suma es baja (ej. 0.1), estamos lejos afuera.
-    // 1.0 - 0.1 = 0.9 (Correcto, positivo es afuera)
 
     return 1.0 - potentialSum;
   }
@@ -553,7 +532,7 @@ public:
       triangle.getPly(plyfile);
     }
 
-    for (int i = 0; i < this->triangles.size(); i++) {
+    for (size_t i = 0; i < this->triangles.size(); i++) {
       plyfile << "3 " << i * 3 << " " << i * 3 + 1 << " " << i * 3 + 2 << "\n";
     }
 
@@ -652,5 +631,27 @@ public:
     chrono::duration<double> elapsed = end - start;
 
     cout << "Mesh generated with " << triangles.size() << " triangles in " << elapsed.count() << " seconds.\n";
+  }
+
+  void generateLocalMesh(int start_i, int end_i, int start_j, int end_j, int start_k, int end_k) {
+    triangles.clear();
+    for (int k = start_k; k < end_k; ++k) {
+      for (int j = start_j; j < end_j; ++j) {
+        for (int i = start_i; i < end_i; ++i) {
+          double x = i * delta;
+          double y = j * delta;
+          double z = k * delta;
+          generatePoints(x, y, z, delta);
+        }
+      }
+    }
+  }
+
+  vector<Triangle>& getTriangles() {
+    return triangles;
+  }
+
+  void setTriangles(const vector<Triangle>& new_triangles) {
+    triangles = new_triangles;
   }
 };

@@ -538,7 +538,7 @@ public:
       : domain(domain), delta(delta), filename(filename), func(func) {}
 
   void exportPly() {
-    fstream plyfile(FOLDER_PATH + this->filename, ios::out);
+    fstream plyfile(FOLDER_PATH + this->filename + ".ply", ios::out);
     plyfile << "ply\n";
     plyfile << "format ascii 1.0\n";
     plyfile << "element vertex " << this->triangles.size() * 3 << "\n";

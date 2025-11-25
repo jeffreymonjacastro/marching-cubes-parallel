@@ -1,83 +1,77 @@
 #include "mc.h"
 
-int main() {
-  int domain = 512;
-  int delta = 2;
-  string filename = "heart.ply";
+int main(int argc, char **argv) {
+  if (argc == 2 && string(argv[1]) == "help") {
+    cout << "Usage: " << argv[0] << " <domain> <delta> <function_name>" << endl;
+    cout << "Available functions:" << endl;
+    cout << "  sphere" << endl;
+    cout << "  torus" << endl;
+    cout << "  rounded_cube" << endl;
+    cout << "  gyroid" << endl;
+    cout << "  metaballs" << endl;
+    return 0;
+  }
 
-  // ========== FUNCIONES BÁSICAS ==========
+  if (argc != 4) {
+    cout << "Invalid arguments. Use '" << argv[0] << " help' for usage information." << endl;
+    return 1;
+  }
 
-  // 1. Esfera
-  // Sphere sphere(domain / 2.0, domain / 2.0, domain / 2.0, domain * (100.0 / 256.0));
-  // MarchingCubes mc(domain, delta, "sphere.ply", &sphere);
+  int domain = stoi(argv[1]);
+  int delta = stoi(argv[2]);
+  string function_name = argv[3];
+  string filename = function_name;
 
-  // 2. Toro
-  // TorusFunction torus(domain / 2.0, domain / 2.0, domain / 2.0, 70.0, 20.0);
-  // MarchingCubes mc(domain, delta, "torus.ply", &torus);
+  ImplicitFunction *func = nullptr;
+  Sphere *sphere = nullptr;
+  TorusFunction *torus = nullptr;
+  RoundedCubeFunction *roundedCube = nullptr;
+  GyroidFunction *gyroid = nullptr;
+  MetaBalls *metaballs = nullptr;
 
-  // 3. Cubo Redondeado
-  // RoundedCubeFunction roundedCube(domain / 2.0, domain / 2.0, domain / 2.0, 150.0, 15.0);
-  // MarchingCubes mc(domain, delta, "rounded_cube.ply", &roundedCube);
+  if (function_name == "sphere") {
+    sphere = new Sphere(domain / 2.0, domain / 2.0, domain / 2.0, domain * (100.0 / 256.0));
+    func = sphere;
+  } else if (function_name == "torus") {
+    torus = new TorusFunction(domain / 2.0, domain / 2.0, domain / 2.0, 70.0, 20.0);
+    func = torus;
+  } else if (function_name == "rounded_cube") {
+    roundedCube = new RoundedCubeFunction(domain / 2.0, domain / 2.0, domain / 2.0, 150.0, 15.0);
+    func = roundedCube;
+  } else if (function_name == "gyroid") {
+    gyroid = new GyroidFunction(domain / 2.0, domain / 2.0, domain / 2.0, 0.06, 0.5);
+    func = gyroid;
+  } else if (function_name == "metaballs") {
+    metaballs = new MetaBalls();
+    double cx = domain / 2.0, cy = domain / 2.0, cz = domain / 2.0;
+    metaballs->addSphere(cx - 120, cy, cz, 70);
+    metaballs->addSphere(cx + 130, cy, cz, 65);
+    metaballs->addSphere(cx, cy + 110, cz, 75);
+    metaballs->addSphere(cx + 90, cy - 80, cz, 55);
+    metaballs->addSphere(cx + 50, cy - 50, cz, 50);
+    metaballs->addSphere(cx - 50, cy, cz + 110, 70.0);
+    metaballs->addSphere(cx + 30, cy - 30, cz - 110, 80.0);
+    metaballs->addSphere(cx, cy - 60, cz + 15, 65.0);
+    func = metaballs;
+  } else {
+    cout << "Unknown function: " << function_name << endl;
+    return 1;
+  }
 
-  // ========== FUNCIONES AVANZADAS ==========
-
-  // 4. Gyroid (superficie mínima periódica)
-  // GyroidFunction gyroid(domain / 2.0, domain / 2.0, domain / 2.0, 0.15, 0.2);
-  // MarchingCubes mc(domain, delta, "gyroid.ply", &gyroid);
-
-  // 5. Metaballs (blobs orgánicos)
-  MetaBalls metaballs;
-
-  // Centro del dominio
-  double cx = 256, cy = 256, cz = 256;
-
-  // 1. Grupo Central (ligeramente separadas)
-  metaballs.addSphere(cx - 40, cy, cz, 40); // Izquierda
-  metaballs.addSphere(cx + 40, cy, cz, 40); // Derecha
-  metaballs.addSphere(cx, cy + 50, cz, 35); // Arriba
-
-  // 2. Satélite Lejano (Para probar desconexión)
-  // Ponlo lejos, casi en el borde del dominio visible
-  metaballs.addSphere(cx + 120, cy - 80, cz, 30);
-
-  // 3. Puente largo (Para probar tunelización)
-  // Colocado entre el centro y el satélite, pero pequeño
-  metaballs.addSphere(cx + 60, cy - 40, cz, 25);
-
-  // Esfera 3: MUY AL FRENTE (Z grande)
-  // Esta esfera estará "cerca" de la cara frontal del cubo
-  metaballs.addSphere(cx - 50, cy, cz + 100, 58.0);
-
-  // Esfera 4: MUY AL FONDO (Z pequeño)
-  // Esta esfera estará "lejos", casi en el fondo del cubo
-  metaballs.addSphere(cx + 40, cy - 40, cz - 120, 70.0);
-
-  // Esfera 5: Flotando en medio
-  metaballs.addSphere(cx, cy - 80, cz + 20, 50.0);
-
-  MarchingCubes mc(domain, delta, "metaballs.ply", &metaballs);
-
-  // 6. Mandelbulb (fractal 3D - requiere delta pequeño y puede ser lento)
-  // int delta_fractal = 4;
-  // MandelbulbFunction mandelbulb(domain / 2.0, domain / 2.0, domain / 2.0, 8.0, 15, 2.0);
-  // MarchingCubes mc(domain, delta_fractal, "mandelbulb.ply", &mandelbulb);
-
-  // 7. Corazón 3D (versión mejorada más estable)
-  // HeartFunction heart(domain / 2.0, domain / 2.0, domain / 2.0, 100.0);
-  // MarchingCubes mc(domain, delta, "heart.ply", &heart);
-
-  // 7b. Corazón 3D versión simple (más robusta, prueba esta si la anterior tiene artefactos)
-  // HeartFunctionSimple heart_simple(domain / 2.0, domain / 2.0, domain / 2.0, 100.0);
-  // MarchingCubes mc(domain, delta, "heart_simple.ply", &heart_simple);
-
-  // 8. Función Híbrida Compleja (la más compleja - combina toro, esferas, cubo, gyroid, ondas)
-  // ComplexHybridFunction complexShape(domain / 2.0, domain / 2.0, domain / 2.0, 0.5);
-  // MarchingCubes mc(domain, delta, "complex_hybrid.ply", &complexShape);
-
-  // ========== GENERAR Y EXPORTAR ==========
-
+  MarchingCubes mc(domain, delta, filename, func);
   mc.generateMesh();
   mc.exportPly();
+
+  if (sphere)
+    delete sphere;
+  if (torus)
+    delete torus;
+  if (roundedCube)
+    delete roundedCube;
+  if (gyroid)
+    delete gyroid;
+  if (metaballs)
+    delete metaballs;
 
   return 0;
 }

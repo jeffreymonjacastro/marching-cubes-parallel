@@ -586,14 +586,15 @@ public:
       return;
 
     Point cubeVertices[8] = {
-        Point(x, y, z),
-        Point(x + delta, y, z),
-        Point(x + delta, y + delta, z),
-        Point(x, y + delta, z),
-        Point(x, y, z + delta),
-        Point(x + delta, y, z + delta),
-        Point(x + delta, y + delta, z + delta),
-        Point(x, y + delta, z + delta)};
+      Point(x, y, z),
+      Point(x + delta, y, z),
+      Point(x + delta, y + delta, z),
+      Point(x, y + delta, z),
+      Point(x, y, z + delta),
+      Point(x + delta, y, z + delta),
+      Point(x + delta, y + delta, z + delta),
+      Point(x, y + delta, z + delta)
+    };
 
     Point edgeIntersections[12];
     for (int i = 0; i < 12; ++i) {

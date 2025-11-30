@@ -5,7 +5,9 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
 #SBATCH --time=02:00:00
-#SBATCH --mem=16G                  # Pedimos 16GB de RAM para ir sobrados
+#SBATCH --mem=16G                
+#SBATCH --mail-type=END,FAIL
+#SBATCH --mail-user=jeffrey.monja@utec.edu.pe  
 
 OUTPUT="tiempos_rescue.csv"
 echo "Delta,Tiempo,Triangulos" > $OUTPUT

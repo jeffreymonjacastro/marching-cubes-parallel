@@ -13,7 +13,7 @@ echo "Delta,Tiempo,Triangulos" > $OUTPUT
 # --- CONFIGURACIÓN DE RESCATE ---
 DOMAIN=2048       # Bajamos a 1024 (Esto sí lo aguanta la RAM)
 FUNC="metaballs"
-DELTAS=(32 16 8 4 2 1 0.5 0.25)
+DELTAS=(32 16 8 4 2 1)
 
 echo "Iniciando MODO RESCATE: Dominio $DOMAIN, Función $FUNC..."
 

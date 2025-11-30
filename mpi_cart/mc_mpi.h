@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstring>
 #include <fstream>
 #include <functional>
 #include <iomanip>
@@ -517,7 +518,7 @@ public:
       : domain(domain), delta(delta), filename(filename), func(func) {}
 
   void exportPly() {
-    fstream plyfile(FOLDER_PATH + this->filename + ".ply", ios::out);
+    fstream plyfile(FOLDER_PATH + this->filename + "_" + to_string(this->domain) + "_" + to_string(this->delta) + ".ply", ios::out);
     plyfile << "ply\n";
     plyfile << "format ascii 1.0\n";
     plyfile << "element vertex " << this->triangles.size() * 3 << "\n";
@@ -539,18 +540,170 @@ public:
     plyfile.close();
   }
 
-  int generateCase(double x, double y, double z, double delta) {
+  void exportPlyParallel(MPI_Comm comm) {
+    int rank, size;
+    MPI_Comm_rank(comm, &rank);
+    MPI_Comm_size(comm, &size);
+
+    string filename_out = FOLDER_PATH + this->filename + "_" + to_string(size) + "_" + to_string(this->domain / this->delta) + ".ply";
+
+    long long local_tri_count = triangles.size();
+    long long total_tri_count = 0;
+    long long offset_tri_count = 0;
+
+    // Calcular total de triangulos y el offset de este proceso
+    MPI_Allreduce(
+      &local_tri_count, // &sendbuf
+      &total_tri_count, // &recvbuf
+      1,                // count
+      MPI_LONG_LONG,    // datatype
+      MPI_SUM,          // op
+      comm
+    );
+
+    // Calcular la suma acumulada exclusiva para obtener offsets
+    MPI_Exscan(
+      &local_tri_count,   // &sendbuf
+      &offset_tri_count,  // &recvbuf 
+      1,                  // count 
+      MPI_LONG_LONG,      // datatype
+      MPI_SUM,            // op
+      comm
+    );
+
+    // Exscan deja indefinido el buffer de recepcion en rank 0, asi que lo ponemos a 0 manualmente
+    if (rank == 0) offset_tri_count = 0;
+
+    // Se crea un archivo MPI-IO para escritura paralela
+    MPI_File fh;
+    int err = MPI_File_open(
+      comm, 
+      filename_out.c_str(), 
+      MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, 
+      &fh
+    );
+
+    if (err != MPI_SUCCESS) {
+      if (rank == 0) cerr << "Error opening file for MPI-IO" << endl;
+      return;
+    }
+
+    // --- Escribir Header (Solo Rank 0) ---
+    MPI_Offset header_len = 0;
+    if (rank == 0) {
+      stringstream ss;
+      ss << "ply\n";
+      ss << "format binary_little_endian 1.0\n";
+      ss << "element vertex " << total_tri_count * 3 << "\n";
+      ss << "property float x\n";
+      ss << "property float y\n";
+      ss << "property float z\n";
+      ss << "element face " << total_tri_count << "\n";
+      ss << "property list uchar int vertex_indices\n";
+      ss << "end_header\n";
+
+      string header = ss.str();
+      header_len = header.size();
+
+      MPI_File_write(
+        fh, 
+        header.c_str(), 
+        header_len, 
+        MPI_CHAR, 
+        MPI_STATUS_IGNORE
+      );
+    }
+
+    // Difundir el tamaño del header a todos para calcular offsets
+    MPI_Bcast(
+      &header_len, 
+      1, 
+      MPI_OFFSET, 
+      0, 
+      comm
+    );
+
+    // --- Calcular Offsets de Datos ---
+    // Cada triangulo tiene 3 vertices, cada vertice 3 floats (4 bytes c/u) -> 36 bytes por triangulo
+    MPI_Offset vertex_section_start = header_len;
+    MPI_Offset my_vertex_offset = vertex_section_start + offset_tri_count * 3 * 3 * sizeof(float);
+
+    // Cada cara tiene 1 uchar (1 byte) + 3 ints (4 bytes c/u) -> 13 bytes por cara
+    MPI_Offset face_section_start = vertex_section_start + total_tri_count * 3 * 3 * sizeof(float);
+    MPI_Offset my_face_offset = face_section_start + offset_tri_count * (1 + 3 * sizeof(int));
+
+    // --- Preparar y Escribir Vertices ---
+    vector<float> vertex_buffer;
+    vertex_buffer.reserve(local_tri_count * 9);
+
+    for (const auto& t : triangles) {
+      vertex_buffer.push_back((float)t.p1.x); 
+      vertex_buffer.push_back((float)t.p1.y); 
+      vertex_buffer.push_back((float)t.p1.z);
+      vertex_buffer.push_back((float)t.p2.x); 
+      vertex_buffer.push_back((float)t.p2.y); 
+      vertex_buffer.push_back((float)t.p2.z);
+      vertex_buffer.push_back((float)t.p3.x); 
+      vertex_buffer.push_back((float)t.p3.y); 
+      vertex_buffer.push_back((float)t.p3.z);
+    }
+
+    // Escribir todos los vertices de todos los procesos en paralelo
+    MPI_File_write_at_all(
+      fh, 
+      my_vertex_offset, 
+      vertex_buffer.data(), 
+      vertex_buffer.size(), 
+      MPI_FLOAT, 
+      MPI_STATUS_IGNORE
+    );
+
+    // --- Preparar y Escribir Caras ---
+    // Estructura binaria de cara: [uchar count=3] [int idx1] [int idx2] [int idx3]
+    // Total 13 bytes por cara.
+    vector<unsigned char> face_buffer;
+    face_buffer.resize(local_tri_count * 13);
+    
+    long long global_vertex_idx = offset_tri_count * 3;
+    unsigned char* ptr = face_buffer.data();
+    
+    for (long long i = 0; i < local_tri_count; ++i) {
+      unsigned char count = 3;
+      int idx1 = global_vertex_idx++;
+      int idx2 = global_vertex_idx++;
+      int idx3 = global_vertex_idx++;
+
+      memcpy(ptr, &count, 1); ptr += 1;
+      memcpy(ptr, &idx1, 4); ptr += 4;
+      memcpy(ptr, &idx2, 4); ptr += 4;
+      memcpy(ptr, &idx3, 4); ptr += 4;
+    }
+
+    MPI_File_write_at_all(
+      fh, 
+      my_face_offset, 
+      face_buffer.data(), 
+      face_buffer.size(), 
+      MPI_BYTE, 
+      MPI_STATUS_IGNORE
+    );
+
+    MPI_File_close(&fh);
+  }
+
+  int generateCase(double x, double y, double z, int delta) {
     int whichCase = 0;
 
     double vertices[8][3] = {
-        {x, y, z},
-        {x + delta, y, z},
-        {x + delta, y + delta, z},
-        {x, y + delta, z},
-        {x, y, z + delta},
-        {x + delta, y, z + delta},
-        {x + delta, y + delta, z + delta},
-        {x, y + delta, z + delta}};
+      {x, y, z},
+      {x + delta, y, z},
+      {x + delta, y + delta, z},
+      {x, y + delta, z},
+      {x, y, z + delta},
+      {x + delta, y, z + delta},
+      {x + delta, y + delta, z + delta},
+      {x, y + delta, z + delta}
+    };
 
     for (int i = 0; i < 8; ++i) {
       if (this->func->evaluate(vertices[i][0], vertices[i][1], vertices[i][2]) > 0) {
@@ -580,7 +733,7 @@ public:
     return p0 + (p1 - p0) * t;
   }
 
-  void generatePoints(double x, double y, double z, double delta) {
+  void generatePoints(double x, double y, double z, int delta) {
     int whichCase = generateCase(x, y, z, delta);
     if (whichCase == 0 || whichCase == 255)
       return;

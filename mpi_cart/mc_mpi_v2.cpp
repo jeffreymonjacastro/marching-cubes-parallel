@@ -7,9 +7,9 @@ int main(int argc, char **argv) {
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
   MPI_Comm_size(MPI_COMM_WORLD, &size);
 
-  if (rank == 0) {
-    cout << "Number of MPI processes: " << size << endl;
-  }
+  // if (rank == 0) {
+  //   cout << "Number of MPI processes: " << size << endl;
+  // }
 
   if (argc == 2 && string(argv[1]) == "help") {
     if (rank == 0) {
@@ -45,29 +45,34 @@ int main(int argc, char **argv) {
   GyroidFunction *gyroid = nullptr;
   MetaBalls *metaballs = nullptr;
 
+  // Factor de escala global basado en un dominio de referencia de 512
+  double s = domain / 512.0;
+
   if (function_name == "sphere") {
     sphere = new Sphere(domain / 2.0, domain / 2.0, domain / 2.0, domain * (100.0 / 256.0));
     func = sphere;
   } else if (function_name == "torus") {
-    torus = new TorusFunction(domain / 2.0, domain / 2.0, domain / 2.0, 70.0, 20.0);
+    torus = new TorusFunction(domain / 2.0, domain / 2.0, domain / 2.0, 70.0 * s, 20.0 * s);
     func = torus;
   } else if (function_name == "rounded_cube") {
-    roundedCube = new RoundedCubeFunction(domain / 2.0, domain / 2.0, domain / 2.0, 150.0, 15.0);
+    roundedCube = new RoundedCubeFunction(domain / 2.0, domain / 2.0, domain / 2.0, 150.0 * s, 15.0 * s);
     func = roundedCube;
   } else if (function_name == "gyroid") {
-    gyroid = new GyroidFunction(domain / 2.0, domain / 2.0, domain / 2.0, 0.06, 0.5);
+    // Para el gyroid, la escala es inversa: a mayor dominio, menor frecuencia para mantener el aspecto
+    gyroid = new GyroidFunction(domain / 2.0, domain / 2.0, domain / 2.0, 0.06 / s, 0.5);
     func = gyroid;
   } else if (function_name == "metaballs") {
     metaballs = new MetaBalls();
     double cx = domain / 2.0, cy = domain / 2.0, cz = domain / 2.0;
-    metaballs->addSphere(cx - 120, cy, cz, 70);
-    metaballs->addSphere(cx + 130, cy, cz, 65);
-    metaballs->addSphere(cx, cy + 110, cz, 75);
-    metaballs->addSphere(cx + 90, cy - 80, cz, 55);
-    metaballs->addSphere(cx + 50, cy - 50, cz, 50);
-    metaballs->addSphere(cx - 50, cy, cz + 110, 70.0);
-    metaballs->addSphere(cx + 30, cy - 30, cz - 110, 80.0);
-    metaballs->addSphere(cx, cy - 60, cz + 15, 65.0);
+    // s ya esta definido arriba
+    metaballs->addSphere(cx - 120 * s, cy, cz, 70 * s);
+    metaballs->addSphere(cx + 130 * s, cy, cz, 65 * s);
+    metaballs->addSphere(cx, cy + 110 * s, cz, 75 * s);
+    metaballs->addSphere(cx + 90 * s, cy - 80 * s, cz, 55 * s);
+    metaballs->addSphere(cx + 50 * s, cy - 50 * s, cz, 50 * s);
+    metaballs->addSphere(cx - 50 * s, cy, cz + 110 * s, 70.0 * s);
+    metaballs->addSphere(cx + 30 * s, cy - 30 * s, cz - 110 * s, 80.0 * s);
+    metaballs->addSphere(cx, cy - 60 * s, cz + 15 * s, 65.0 * s);
     func = metaballs;
   } else {
     cout << "Unknown function: " << function_name << endl;
@@ -76,24 +81,15 @@ int main(int argc, char **argv) {
 
   double start_time = MPI_Wtime();
 
-  // Se crea una estructura MPI para enviar los triángulos
-  // Prácticamente le dice a MPI que un Triangle es una fila de 9 doubles pegados
-  MPI_Datatype triangle_type;
-  MPI_Type_contiguous(sizeof(Triangle) / sizeof(double), MPI_DOUBLE, &triangle_type);
-  MPI_Type_commit(&triangle_type);
-
-  vector<Triangle> local_triangles;
-  int local_triangle_count;
-
   // Cartesian Grid Setup
   // Esto divide el dominio entre los procesos de manera uniforme
   // Por ejemplo, si son 8 procesos, se crea una grilla 2x2x2
   int dims[3] = {0, 0, 0};
   MPI_Dims_create(size, 3, dims);
 
-  if (rank == 0) {
-    cout << "Process grid dimensions: " << dims[0] << " x " << dims[1] << " x " << dims[2] << endl;
-  }
+  // if (rank == 0) {
+  //   cout << "Process grid dimensions: " << dims[0] << " x " << dims[1] << " x " << dims[2] << endl;
+  // }
 
   // Create Cartesian communicator
   // Esto permite manejar la comunicación entre procesos en una grilla 3D
@@ -102,9 +98,9 @@ int main(int argc, char **argv) {
   MPI_Comm cart_comm;
   MPI_Cart_create(MPI_COMM_WORLD, 3, dims, periods, 1, &cart_comm);
   
-  if (rank == 0) {
-    cout << "Process periods: " << periods[0] << " " << periods[1] << " " << periods[2] << endl;
-  }
+  // if (rank == 0) {
+  //   cout << "Process periods: " << periods[0] << " " << periods[1] << " " << periods[2] << endl;
+  // }
 
   // Esto obtiene las coordenadas del proceso en la grilla cartesiana
   // Por ejemplo, si soy el proceso 6, puedo saber que estoy en la posición (1,1,0) de la grilla
@@ -130,74 +126,18 @@ int main(int argc, char **argv) {
   int local_start_k = coords[2] * base_z + min(coords[2], extra_z);
   int local_end_k = local_start_k + base_z + (coords[2] < extra_z ? 1 : 0);
 
-  // Overlap for stitching
-  // if (coords[0] > 0) local_start_i--;
-  // if (coords[1] > 0) local_start_j--;
-  // if (coords[2] > 0) local_start_k--;
-
   // Procedimiento principal de Marching Cubes
   MarchingCubes mc(domain, delta, filename, func);
   mc.generateLocalMesh(local_start_i, local_end_i, local_start_j, local_end_j, local_start_k, local_end_k);
 
-  local_triangles = mc.getTriangles();
-  local_triangle_count = local_triangles.size();
-
-  vector<int> recv_counts;
-  if (rank == 0) recv_counts.resize(size);
-
-  MPI_Gather(
-    &local_triangle_count,  // &send_buff
-    1,                      // send_cnt
-    MPI_INT,                // send_type
-    recv_counts.data(),     // &recv_buff
-    1,                      // recv_cnt
-    MPI_INT,                // recv_type
-    0,                      // root 
-    cart_comm               // comm
-  );
-
-  vector<Triangle> all_triangles;
-  vector<int> displacements;
-
-  if (rank == 0) {
-    displacements.resize(size);
-    displacements[0] = 0;
-    int total_triangles = 0;
-    if (!recv_counts.empty()) {
-      total_triangles = recv_counts[0];
-      for (int i = 1; i < size; ++i) {
-        total_triangles += recv_counts[i];
-        displacements[i] = displacements[i - 1] + recv_counts[i - 1];
-      }
-    }
-    all_triangles.resize(total_triangles);
-  }
-
-  MPI_Gatherv(
-    local_triangles.data(),  // &send_buff
-    local_triangle_count,    // send_cnt
-    triangle_type,           // send_type
-    all_triangles.data(),    // &recv_buff
-    recv_counts.data(),      // &recv_cnts  
-    displacements.data(),    // &displs
-    triangle_type,           // recv_type
-    0,                       // root 
-    cart_comm                // comm
-  );
-
-  if (rank == 0) {
-    mc.setTriangles(all_triangles);
-    mc.exportPly();
-  }
+  // Exportar PLY en paralelo usando MPI-IO
+  mc.exportPlyParallel(cart_comm);
 
   double end_time = MPI_Wtime();
 
   if (rank == 0) {
     cout << "Total execution time: " << (end_time - start_time) << " seconds." << endl;
-    cout << "Total triangles: " << all_triangles.size() << endl;
   }
-
-  MPI_Type_free(&triangle_type);
   MPI_Comm_free(&cart_comm);
 
   if (sphere)

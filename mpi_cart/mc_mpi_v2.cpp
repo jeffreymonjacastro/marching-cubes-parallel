@@ -87,10 +87,6 @@ int main(int argc, char **argv) {
   int dims[3] = {0, 0, 0};
   MPI_Dims_create(size, 3, dims);
 
-  // if (rank == 0) {
-  //   cout << "Process grid dimensions: " << dims[0] << " x " << dims[1] << " x " << dims[2] << endl;
-  // }
-
   // Create Cartesian communicator
   // Esto permite manejar la comunicación entre procesos en una grilla 3D
   // Traduce internamente de ranks a coordenadas
@@ -98,10 +94,6 @@ int main(int argc, char **argv) {
   MPI_Comm cart_comm;
   MPI_Cart_create(MPI_COMM_WORLD, 3, dims, periods, 1, &cart_comm);
   
-  // if (rank == 0) {
-  //   cout << "Process periods: " << periods[0] << " " << periods[1] << " " << periods[2] << endl;
-  // }
-
   // Esto obtiene las coordenadas del proceso en la grilla cartesiana
   // Por ejemplo, si soy el proceso 6, puedo saber que estoy en la posición (1,1,0) de la grilla
   int coords[3];

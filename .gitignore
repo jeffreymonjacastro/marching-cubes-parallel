@@ -45,3 +45,5 @@
 
 # vscode
 .vscode/
+
+venv/

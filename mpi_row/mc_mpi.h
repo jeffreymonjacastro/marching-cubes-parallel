@@ -562,6 +562,10 @@ public:
       comm
     );
 
+    if (rank == 0) {
+      cout << "Total triangles: " << total_tri_count << endl;
+    }
+
     // Calcular la suma acumulada exclusiva para obtener offsets
     MPI_Exscan(           // * O(logp)
       &local_tri_count,   // &sendbuf
@@ -785,7 +789,7 @@ public:
       }
     }
 
-    // Total Flops = 1 + ((domain/delta)^3 * 712) + (N_surface * 2292)
+    // Total Flops = 1 + ((domain/delta)^3 * 712) + (N_triangles * 2292)
     // Total Flops = 
 
     auto end = chrono::high_resolution_clock::now();

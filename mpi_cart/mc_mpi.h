@@ -561,6 +561,10 @@ public:
       comm
     );
 
+    if (rank == 0) {
+      cout << "Total triangles: " << total_tri_count << endl;
+    }
+
     // Calcular la suma acumulada exclusiva para obtener offsets
     MPI_Exscan(
       &local_tri_count,   // &sendbuf

@@ -10,7 +10,7 @@
 #SBATCH --mail-user=jeffrey.monja@utec.edu.pe
 
 OUTPUT="tiempos_mpi.csv"
-echo "Procesos,Delta,Tiempo" > $OUTPUT
+echo "Procesos,Delta,Tiempo,Triangulos" > $OUTPUT
 
 # --- CONFIGURACIÓN ---
 DOMAIN=2048
@@ -22,9 +22,9 @@ PROCS=(2 4 8 16 32)
 
 echo "Iniciando Experimento MPI: Dominio $DOMAIN, Función $FUNC..."
 
-for P in "${PROCS[@]}"
+for D in "${DELTAS[@]}"
 do
-    for D in "${DELTAS[@]}"
+    for P in "${PROCS[@]}"
     do
         echo "-------------------------------------------"
         echo "Procesando P=$P, Delta=$D"
@@ -34,10 +34,12 @@ do
         
         # Extraer el tiempo de la salida (tomamos solo la primera ocurrencia por seguridad)
         TIEMPO=$(echo "$SALIDA" | grep "Total execution time:" | awk '{print $4}')
+        TRIANGULOS=$(echo "$SALIDA" | grep "Total triangles:" | awk '{print $3}')
         
         echo "  -> Tiempo: $TIEMPO s"
+        echo "  -> Triangulos: $TRIANGULOS"
         
-        echo "$P,$D,$TIEMPO" >> $OUTPUT
+        echo "$P,$D,$TIEMPO,$TRIANGULOS" >> $OUTPUT
     done
 done
 

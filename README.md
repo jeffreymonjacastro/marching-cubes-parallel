@@ -1,2 +1,2 @@
-# marching-cubes-parallel
+# Marching-Cubes-Parallel
 Parallel and Distributed Computing project

@@ -9,6 +9,7 @@ import math
 # --- CONFIGURACIÓN ---
 DOMAIN_SIZE = 2048
 OUTPUT_DIR = 'outputs'
+FLOPS_PER_CELL = 2500.0 
 
 # Rutas relativas
 PATH_SEQ = os.path.join('sequential', 'tiempos_rescue.csv')
@@ -18,7 +19,7 @@ PATH_CART = os.path.join('mpi_cart', 'tiempos_mpi.csv')
 if not os.path.exists(OUTPUT_DIR):
     os.makedirs(OUTPUT_DIR)
 
-# --- 1. CARGA DE DATOS ---
+# --- CARGA DE DATOS ---
 def load_and_prep_data():
     try:
         df_row = pd.read_csv(PATH_ROW)
@@ -75,7 +76,6 @@ def load_and_prep_data():
 
     return df_all
 
-# --- CÁLCULOS ---
 def calculate_standard_metrics(data):
     t_base_row = data[data['Procesos'] == 1]
     if not t_base_row.empty:
@@ -89,12 +89,38 @@ def calculate_standard_metrics(data):
 
 # --- GRÁFICAS ---
 
-def plot_time_subplots(df_all):
-    """ Genera una grilla de gráficas de Tiempo vs Procesos (Una por N) """
+def plot_time_combined(df_all):
+    plt.figure(figsize=(10, 7))
     Ns = sorted(df_all['N'].unique(), reverse=True)
-    cols = 2
-    rows = math.ceil(len(Ns) / cols)
+    colors = cm.viridis(np.linspace(0, 1, len(Ns)))
     
+    for i, n in enumerate(Ns):
+        # MPI Row
+        data_row = df_all[(df_all['N'] == n) & (df_all['Strategy'] == 'MPI Row')].sort_values('Procesos')
+        if not data_row.empty:
+            plt.plot(data_row['Procesos'], data_row['Tiempo'], marker='o', linestyle='-', color=colors[i], label=f'Row N={n}')
+        
+        # MPI Cart
+        data_cart = df_all[(df_all['N'] == n) & (df_all['Strategy'] == 'MPI Cart')].sort_values('Procesos')
+        if not data_cart.empty:
+            plt.plot(data_cart['Procesos'], data_cart['Tiempo'], marker='s', linestyle='--', color=colors[i], label=f'Cart N={n}', alpha=0.7)
+
+    plt.title('Comparación de Tiempos: Row vs Cart (Log-Log)', fontsize=14)
+    plt.xlabel('Procesos', fontsize=12); plt.ylabel('Tiempo (s)', fontsize=12)
+    plt.xscale('log', base=2); plt.yscale('log', base=10)
+    plt.xticks([1, 2, 4, 8, 16, 32]); plt.gca().get_xaxis().set_major_formatter(ScalarFormatter())
+    plt.grid(True, which="both", alpha=0.3)
+    plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', borderaxespad=0, ncol=1, fontsize='small')
+    plt.tight_layout()
+    plt.savefig(os.path.join(OUTPUT_DIR, 'tiempos_combined.png'), dpi=300)
+    plt.close()
+
+def plot_time_subplots(df_all):
+    """ 
+    CORRECCIÓN: Eje Y Logarítmico para evitar 'apachurramiento' visual.
+    """
+    Ns = sorted(df_all['N'].unique(), reverse=True)
+    cols = 2; rows = math.ceil(len(Ns) / cols)
     fig, axes = plt.subplots(rows, cols, figsize=(12, 4 * rows), constrained_layout=True)
     axes = axes.flatten()
     
@@ -105,37 +131,19 @@ def plot_time_subplots(df_all):
             if not data.empty:
                 ax.plot(data['Procesos'], data['Tiempo'], marker=marker, label=strategy, color=color)
         
-        ax.set_title(f'Tiempo de Ejecución: N={n}')
-        ax.set_xlabel('Procesos'); ax.set_ylabel('Tiempo (s)')
+        ax.set_title(f'N={n}'); ax.set_xlabel('Procesos'); ax.set_ylabel('Tiempo (s)')
         ax.set_xscale('log', base=2)
-        # Eje Y lineal para ver la magnitud real del tiempo
+        ax.set_yscale('log') # <--- CORRECCIÓN
+        
+        # Formato de ejes más limpio
         ax.set_xticks([1, 2, 4, 8, 16, 32])
         ax.get_xaxis().set_major_formatter(ScalarFormatter())
-        ax.grid(True, which="both", alpha=0.5)
-        ax.legend()
+        ax.yaxis.set_major_formatter(ScalarFormatter()) 
+        
+        ax.grid(True, which="both", alpha=0.5); ax.legend()
 
     for j in range(i + 1, len(axes)): axes[j].axis('off')
-    plt.savefig(os.path.join(OUTPUT_DIR, 'tiempos_subplots.png'), bbox_inches='tight', dpi=300)
-    plt.close()
-
-def plot_time_combined(df_all):
-    """ Genera una sola gráfica log-log con todos los tiempos """
-    plt.figure(figsize=(10, 6))
-    Ns = sorted(df_all['N'].unique(), reverse=True)
-    colors = cm.viridis(np.linspace(0, 1, len(Ns)))
-    
-    for i, n in enumerate(Ns):
-        # Usamos MPI Cart como representativo para no saturar
-        data = df_all[(df_all['N'] == n) & (df_all['Strategy'] == 'MPI Cart')].sort_values('Procesos')
-        if not data.empty:
-            plt.plot(data['Procesos'], data['Tiempo'], marker='o', label=f'N={n}', color=colors[i])
-
-    plt.title('Tiempo de Ejecución vs Procesos (Log-Log)')
-    plt.xlabel('Procesos'); plt.ylabel('Tiempo (s)')
-    plt.xscale('log', base=2); plt.yscale('log', base=10)
-    plt.xticks([1, 2, 4, 8, 16, 32]); plt.gca().get_xaxis().set_major_formatter(ScalarFormatter())
-    plt.grid(True, which="both", alpha=0.3); plt.legend(title='Tamaño (N)')
-    plt.savefig(os.path.join(OUTPUT_DIR, 'tiempos_combined.png'), bbox_inches='tight', dpi=300)
+    plt.savefig(os.path.join(OUTPUT_DIR, 'tiempos_subplots.png'), dpi=300)
     plt.close()
 
 def plot_efficiency_individual(df_all):
@@ -152,7 +160,8 @@ def plot_efficiency_individual(df_all):
             _, efficiency = calculate_standard_metrics(data)
             ax.plot(data['Procesos'], efficiency, marker='o', label=f'N={n}', color=colors[i])
 
-        ax.set_title(f'Eficiencia: {strategy}'); ax.set_xlabel('Procesos'); ax.set_ylabel('Eficiencia')
+        ax.set_title(f'Eficiencia: {strategy}', fontsize=14)
+        ax.set_xlabel('Número de Procesos'); ax.set_ylabel('Eficiencia')
         ax.set_xscale('log', base=2); ax.set_xticks([1, 2, 4, 8, 16, 32])
         ax.get_xaxis().set_major_formatter(ScalarFormatter())
         ax.set_ylim(bottom=0); ax.grid(True, alpha=0.3); ax.legend(title='N', fontsize='small')
@@ -173,7 +182,8 @@ def plot_speedup_individual(df_all):
             spd, _ = calculate_standard_metrics(data)
             ax.plot(data['Procesos'], spd, marker='o', label=f'N={n}', color=colors[i])
         
-        ax.set_title(f'Speedup: {strategy}'); ax.set_xlabel('Procesos'); ax.set_ylabel('Speedup')
+        ax.set_title(f'Speedup: {strategy}', fontsize=14)
+        ax.set_xlabel('Número de Procesos'); ax.set_ylabel('Speedup')
         ax.set_xscale('log', base=2); ax.set_yscale('log', base=2)
         ax.set_xticks([1, 2, 4, 8, 16, 32]); ax.get_xaxis().set_major_formatter(ScalarFormatter())
         ax.set_yticks([1, 2, 4, 8, 16, 32, 64]); ax.get_yaxis().set_major_formatter(ScalarFormatter())
@@ -183,12 +193,10 @@ def plot_speedup_individual(df_all):
 
 def plot_weak_scaling_cleaned(df_all):
     plt.rcParams.update({'font.size': 12})
-    # --- CORRECCIÓN: Eliminamos la carga baja que se solapaba ---
     target_pairs = [
         {'label': 'Carga Muy Alta (P=1->8)', 'points': [(1, 512), (8, 1024)], 'marker': 'D', 'ls': ':'},
         {'label': 'Carga Alta (P=2->16)', 'points': [(2, 256), (16, 512)], 'marker': 's', 'ls': '-'},
         {'label': 'Carga Media (P=4->32)', 'points': [(4, 256), (32, 512)], 'marker': 'o', 'ls': '--'}
-        # Eliminada Carga Baja
     ]
 
     for strategy in ['MPI Row', 'MPI Cart']:
@@ -204,12 +212,10 @@ def plot_weak_scaling_cleaned(df_all):
             if len(x) == 2:
                 eff = [t[0]/val for val in t]
                 ax.plot(x, eff, marker=pair['marker'], color='black', ls=pair['ls'], label=pair['label'])
-                
                 for i in range(2):
                     off = 1.1 if eff[i] < 0.8 else 0.9
                     va = 'bottom' if eff[i] < 0.8 else 'top'
                     ax.text(x[i], eff[i]*off, f'N={pair["points"][i][1]}', ha='center', va=va, fontsize=10, fontweight='bold')
-                
                 mid_x = np.exp((np.log(x[0])+np.log(x[1]))/2)
                 mid_y = np.exp((np.log(eff[0])+np.log(eff[1]))/2)
                 ax.text(mid_x, mid_y, f'{eff[1]:.2f}x', ha='center', va='center', bbox=dict(facecolor='white', edgecolor='black', boxstyle='round,pad=0.2'))
@@ -218,20 +224,45 @@ def plot_weak_scaling_cleaned(df_all):
         ax.set_xticks([1, 2, 4, 8, 16, 32]); ax.get_xaxis().set_major_formatter(ScalarFormatter())
         ax.set_yticks([0.2, 0.5, 1, 2, 5, 10]); ax.get_yaxis().set_major_formatter(ScalarFormatter())
         ax.set_ylim(0.15, 15) 
-        
         ax.set_xlabel('Procesos (P)'); ax.set_ylabel('Eficiencia Weak Scaling')
-        ax.set_title(f'Weak Scaling Analysis: {strategy}'); ax.grid(True, ls=':', alpha=0.5)
-        ax.legend()
+        ax.set_title(f'Weak Scaling Analysis: {strategy}'); ax.grid(True, ls=':', alpha=0.5); ax.legend()
         plt.savefig(os.path.join(OUTPUT_DIR, f'weak_scaling_style_{strategy.replace(" ", "_")}.png'), bbox_inches='tight', dpi=300)
         plt.close()
 
+def plot_gflops(df_all):
+    strategies = ['MPI Row', 'MPI Cart']
+    Ns = sorted(df_all['N'].unique(), reverse=True)
+    colors = cm.viridis(np.linspace(0, 1, len(Ns)))
+
+    for strategy in strategies:
+        fig, ax = plt.subplots(figsize=(8, 6))
+        for i, n in enumerate(Ns):
+            data = df_all[(df_all['N'] == n) & (df_all['Strategy'] == strategy)].sort_values('Procesos')
+            if data.empty: continue
+            
+            total_flops = (n**3) * FLOPS_PER_CELL
+            gflops = total_flops / data['Tiempo'] / 1e9
+            
+            ax.plot(data['Procesos'], gflops, marker='o', label=f'N={n}', color=colors[i])
+        
+        ax.set_title(f'Rendimiento (GFLOPs): {strategy}')
+        ax.set_xlabel('Número de Procesos'); ax.set_ylabel('Rendimiento (GFLOP/s)')
+        ax.set_xscale('log', base=2); ax.set_yscale('log')
+        ax.set_xticks([1, 2, 4, 8, 16, 32]); ax.get_xaxis().set_major_formatter(ScalarFormatter())
+        ax.grid(True, alpha=0.3); ax.legend(title='N')
+        
+        filename = f'gflops_{strategy.replace(" ", "_")}.png'
+        plt.savefig(os.path.join(OUTPUT_DIR, filename), bbox_inches='tight', dpi=300)
+        plt.close()
+
 if __name__ == "__main__":
-    print("Generando gráficas corregidas...")
+    print("Generando gráficas con eje Y logarítmico en tiempos_subplots...")
     df = load_and_prep_data()
     if df is not None:
-        plot_time_combined(df)
         plot_time_subplots(df)
-        plot_efficiency_individual(df)
+        plot_time_combined(df)
         plot_speedup_individual(df)
+        plot_efficiency_individual(df)
         plot_weak_scaling_cleaned(df)
-        print("¡Listo! Revisa 'outputs/'.")
+        plot_gflops(df)
+        print("¡Listo!")

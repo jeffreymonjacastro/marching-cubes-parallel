@@ -480,7 +480,6 @@ public:
     spheres.emplace_back(cx, cy, cz, r);
   }
 
-  // La magia ocurre aquí
   double evaluate(double x, double y, double z) const override {
     double potentialSum = 0.0;
 
@@ -488,19 +487,21 @@ public:
       double r = sphere.getRadius();
       Point c = sphere.getCenter();
 
-      double dx = x - c.X();
-      double dy = y - c.Y();
-      double dz = z - c.Z();
+      double dx = x - c.X();  // 1 flop
+      double dy = y - c.Y();  // 1 flop
+      double dz = z - c.Z();  // 1 flop
 
-      double distSq = dx * dx + dy * dy + dz * dz;
+      double distSq = dx * dx + dy * dy + dz * dz; // 5 flops
 
       if (distSq < 1e-6)
-        distSq = 1e-6;
+        distSq = 1e-6; 
 
-      potentialSum += (r * r) / distSq;
+      potentialSum += (r * r) / distSq; // 3 flops
     }
 
-    return 1.0 - potentialSum;
+    // Flops = 11 Flops x esfera * 8 esferas = 88 Flops
+
+    return 1.0 - potentialSum; // 1 flop = 89 Flops en total
   }
 };
 
@@ -552,7 +553,7 @@ public:
     long long offset_tri_count = 0;
 
     // Calcular total de triangulos y el offset de este proceso
-    MPI_Allreduce(
+    MPI_Allreduce(      // * O(logp)
       &local_tri_count, // &sendbuf
       &total_tri_count, // &recvbuf
       1,                // count
@@ -562,7 +563,7 @@ public:
     );
 
     // Calcular la suma acumulada exclusiva para obtener offsets
-    MPI_Exscan(
+    MPI_Exscan(           // * O(logp)
       &local_tri_count,   // &sendbuf
       &offset_tri_count,  // &recvbuf 
       1,                  // count 
@@ -576,11 +577,12 @@ public:
 
     // Se crea un archivo MPI-IO para escritura paralela
     MPI_File fh;
-    int err = MPI_File_open(
-      comm, 
-      filename_out.c_str(), 
-      MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, 
-      &fh
+    int err = MPI_File_open(              // * O(α + logp)
+      comm,                               // communicator
+      filename_out.c_str(),               // filename 
+      MPI_MODE_CREATE | MPI_MODE_WRONLY,  // amode
+      MPI_INFO_NULL,                      // info 
+      &fh                                 // file handle                
     );
 
     if (err != MPI_SUCCESS) {
@@ -605,22 +607,22 @@ public:
       string header = ss.str();
       header_len = header.size();
 
-      MPI_File_write(
-        fh, 
-        header.c_str(), 
-        header_len, 
-        MPI_CHAR, 
-        MPI_STATUS_IGNORE
+      MPI_File_write(     //* O(N/B)
+        fh,               // file handle
+        header.c_str(),   // &buffer
+        header_len,       // count
+        MPI_CHAR,         // datatype
+        MPI_STATUS_IGNORE // status
       );
     }
 
     // Difundir el tamaño del header a todos para calcular offsets
-    MPI_Bcast(
-      &header_len, 
-      1, 
-      MPI_OFFSET, 
-      0, 
-      comm
+    MPI_Bcast(      // * O(logp)
+      &header_len,  // &buffer
+      1,            // count
+      MPI_OFFSET,   // datatype
+      0,            // root
+      comm          // communicator
     );
 
     // --- Calcular Offsets de Datos ---
@@ -649,13 +651,13 @@ public:
     }
 
     // Escribir todos los vertices de todos los procesos en paralelo
-    MPI_File_write_at_all(
-      fh, 
-      my_vertex_offset, 
-      vertex_buffer.data(), 
-      vertex_buffer.size(), 
-      MPI_FLOAT, 
-      MPI_STATUS_IGNORE
+    MPI_File_write_at_all(  //* O(logp + N/(p*B)
+      fh,                   // file handle
+      my_vertex_offset,     // offset
+      vertex_buffer.data(), // &buffer
+      vertex_buffer.size(), // &count
+      MPI_FLOAT,            // datatype
+      MPI_STATUS_IGNORE     // status
     );
 
     // --- Preparar y Escribir Caras ---
@@ -679,12 +681,12 @@ public:
       memcpy(ptr, &idx3, 4); ptr += 4;
     }
 
-    MPI_File_write_at_all(
-      fh, 
-      my_face_offset, 
-      face_buffer.data(), 
-      face_buffer.size(), 
-      MPI_BYTE, 
+    MPI_File_write_at_all( //* O(logp + N/(p*B)
+      fh,                   // file handle
+      my_face_offset,       // offset
+      face_buffer.data(),   // &buffer
+      face_buffer.size(),   // &count
+      MPI_BYTE,             // datatype
       MPI_STATUS_IGNORE
     );
 
@@ -705,7 +707,7 @@ public:
       {x, y + delta, z + delta}
     };
 
-    for (int i = 0; i < 8; ++i) {
+    for (int i = 0; i < 8; ++i) { // 8 * 89 Flops = 712 Flops
       if (this->func->evaluate(vertices[i][0], vertices[i][1], vertices[i][2]) > 0) {
         whichCase |= (1 << i);
       }
@@ -715,26 +717,28 @@ public:
   }
 
   Point findIntersection(Point p0, Point p1) {
-    double v0 = this->func->evaluate(p0.X(), p0.Y(), p0.Z());
-    double v1 = this->func->evaluate(p1.X(), p1.Y(), p1.Z());
+    double v0 = this->func->evaluate(p0.X(), p0.Y(), p0.Z()); // 89 Flops
+    double v1 = this->func->evaluate(p1.X(), p1.Y(), p1.Z()); // 89 Flops
 
     if (abs(v0) < EPSILON)
       return p0;
     if (abs(v1) < EPSILON)
       return p1;
 
-    if (v0 * v1 > 0)
-      return (p0 + p1) * 0.5;
+    if (v0 * v1 > 0) // 1 flop
+      return (p0 + p1) * 0.5; // 3 Flops
 
-    double t = v0 / (v0 - v1);
+    double t = v0 / (v0 - v1);  // 2 Flops
 
-    t = max(0.0, min(1.0, t));
+    t = max(0.0, min(1.0, t)); // 2 Flops
 
-    return p0 + (p1 - p0) * t;
+    return p0 + (p1 - p0) * t; // 9 Flops
+
+    // Total = 13 + 178 = 191 Flops
   }
 
   void generatePoints(double x, double y, double z, int delta) {
-    int whichCase = generateCase(x, y, z, delta);
+    int whichCase = generateCase(x, y, z, delta); // 712 Flops
     if (whichCase == 0 || whichCase == 255)
       return;
 
@@ -753,7 +757,7 @@ public:
     for (int i = 0; i < 12; ++i) {
       int v0 = edge_vertice_mapper[i].first;
       int v1 = edge_vertice_mapper[i].second;
-      edgeIntersections[i] = findIntersection(cubeVertices[v0], cubeVertices[v1]);
+      edgeIntersections[i] = findIntersection(cubeVertices[v0], cubeVertices[v1]); // 191 Flops * 12 = 2292 Flops
     }
 
     for (int i = 0; triTable[whichCase][i] != -1; i += 3) {
@@ -768,7 +772,7 @@ public:
 
     auto start = chrono::high_resolution_clock::now();
 
-    int divisions = domain / delta;
+    int divisions = domain / delta; // 1 flop
 
     for (int i = 0; i < divisions; ++i) {
       for (int j = 0; j < divisions; ++j) {
@@ -780,6 +784,9 @@ public:
         }
       }
     }
+
+    // Total Flops = 1 + ((domain/delta)^3 * 712) + (N_surface * 2292)
+    // Total Flops = 
 
     auto end = chrono::high_resolution_clock::now();
     chrono::duration<double> elapsed = end - start;

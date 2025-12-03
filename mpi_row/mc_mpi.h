@@ -790,7 +790,6 @@ public:
     }
 
     // Total Flops = 1 + ((domain/delta)^3 * 712) + (N_triangles * 2292)
-    // Total Flops = 
 
     auto end = chrono::high_resolution_clock::now();
     chrono::duration<double> elapsed = end - start;
